@@ -6,7 +6,9 @@ import logo from "../../../public/images/logo.png";
 import io from 'socket.io-client';
 import Select from "react-select";
 import { RiGroupFill } from "react-icons/ri";
-import { BsFolder, BsList, BsPatchPlusFill, BsPlusLg, BsTrash } from "react-icons/bs";
+import * as ethers from "ethers";
+import contractjson from "../../../artifacts/contracts/localdao.sol/CloverSuiteNFT.json";
+import { BsFolder, BsList, BsPatchPlusFill, BsPlusLg, BsSendFill, BsTrash } from "react-icons/bs";
 import { AiOutlineUserAdd } from "react-icons/ai";
 import {
   FiImage,
@@ -58,9 +60,14 @@ import { FaCloud, FaVoteYea } from "react-icons/fa";
 import { CContext } from "../extras/contexts/CContext";
 import Chatlist from "./sidebar/chatlist";
 import Loader from "../loader";
-import { useAccount } from "wagmi";
+import {
+  useAccount,
+  useSwitchNetwork,
+  useSigner,
+  useDisconnect,
+  useNetwork
+} from "wagmi";
 import { BiSend, BiUser, BiX } from "react-icons/bi";
-import EmojiPicker from "emoji-picker-react";
 import { GroupChatType, MessageType, TextAPIData } from "../types";
 import Cryptr from "cryptr";
 import axios, { AxiosError } from "axios";
@@ -118,7 +125,6 @@ const Base = ({ children }: { children: JSX.Element[] | JSX.Element }) => {
 
   const pathname = router.pathname.split("/");
 
-  const { address, isConnected } = useAccount();
 
   useEffect(() => {
     document
@@ -157,6 +163,8 @@ const Base = ({ children }: { children: JSX.Element[] | JSX.Element }) => {
 
   const [voteDesc, setVoteDesc] = useState<string>("");
 
+  const [amountAir, setAmountAir] = useState<string | number>('')
+
   const [sidebar, setSidebar] = useState<boolean>(false);
 
   const [failMessage, setFailMessage] = useState<string>("");
@@ -176,6 +184,17 @@ const Base = ({ children }: { children: JSX.Element[] | JSX.Element }) => {
   const rContext = useContext(CContext);
 
   const { group, groupData: groupChat, messages: messData } = rContext;
+
+  const { isConnected: connected, address } = useAccount();
+
+  const { chains, error, pendingChainId, switchNetworkAsync } =
+    useSwitchNetwork();
+
+  const { chain: chainId } = useNetwork();
+
+  const { data: nullSigner } = useSigner();
+
+  const [signer, setSigner] = useState(nullSigner);
 
   const updateMessData = (data: MessageType) => {
     rContext.update?.({
@@ -607,11 +626,7 @@ const Base = ({ children }: { children: JSX.Element[] | JSX.Element }) => {
                           exclusive
                           className="w-full cusscroller overflow-y-hidden  mb-4 pb-1"
                           onChange={(e: any) => {
-                            if (
-                              e.target.value &&
-                              e.target.value != "2" &&
-                              e.target.value != "1"
-                            ) {
+                            if (e.target.value) {
                               setToggle(e.target.value);
                             }
                           }}
@@ -633,7 +648,7 @@ const Base = ({ children }: { children: JSX.Element[] | JSX.Element }) => {
                             }}
                             value={"1"}
                           >
-                            <TbCash className="mr-2" size={20} /> Distribute Funds
+                            <TbCash className="mr-2" size={20} /> Airdrops
                           </ToggleButton>
                           {contract.toLowerCase() ==
                             "0x74367351f1A6809cED9Cc70654C6BF8c2d1913c9" && (
@@ -712,7 +727,7 @@ const Base = ({ children }: { children: JSX.Element[] | JSX.Element }) => {
                             )}
                           </div>
                           <span className="text-[14px] block mt-1 text-[#b6b6b6]">
-                            Not selecting any item, selects every item
+                            Not selecting any item, selects everyone
                           </span>
                         </div>
                       </TabPanel>
@@ -723,97 +738,83 @@ const Base = ({ children }: { children: JSX.Element[] | JSX.Element }) => {
                             fullWidth
                             id="outlined-basic"
                             sx={sx}
-                            label="Name"
-                            variant="outlined"
-                            value={nname}
-                            onChange={(
-                              e: React.ChangeEvent<
-                                HTMLInputElement | HTMLTextAreaElement
-                              >
-                            ) => {
-                              setNname(e.target.value);
-                              setFailMessage("");
-                            }}
-                          />
-                        </div>
-
-                        <div className="mb-4">
-                          <TextField
-                            fullWidth
-                            id="outlined-basic"
-                            sx={sx}
-                            label="Description"
+                            label="Amount"
                             multiline
                             variant="outlined"
-                            value={voteDesc}
+                            value={amountAir}
                             onChange={(
                               e: React.ChangeEvent<
                                 HTMLInputElement | HTMLTextAreaElement
                               >
                             ) => {
-                              setVoteDesc(e.target.value);
+                              const val = e.target.value.replace(/[^0-9]/g, "");
+
+                              setAmountAir(val);
                               setFailMessage("");
                             }}
                           />
                         </div>
 
-                        <div className="mb-5">
+                        <div className="mt-4">
                           <label className="text-[#808080] mb-2 block">
-                            Select Discussion Channel participants can vote on
+                            Add members
                           </label>
 
-                          <Select
-                            isClearable={false}
-                            value={discussions}
-                            onChange={(e: any) => setDiscussion(e)}
-                            name="Channels"
-                            placeholder={"Channels..."}
-                            options={Object.keys(messData || {})}
-                            styles={{
-                              option: (provided: any, state: any) => {
-                                return {
-                                  ...provided,
-                                  backgroundColor: state.isSelected
-                                    ? "#dfdfdf"
-                                    : "transparent",
-                                  cursor: "pointer",
-                                  "&:active": {
-                                    backgroundColor: "#dfdfdf",
+                          <div className="flex w-full items-center cusscroller flex-nowrap overflow-y-hidden overflow-x-scroll">
+                            <div
+                              onClick={() => {
+                                setDisparts([...participants]);
+                              }}
+                              style={
+                                disparts.length == participants.length
+                                  ? {
+                                      color: "#fff",
+                                      backgroundColor: "rgb(24, 144, 255)",
+                                    }
+                                  : {}
+                              }
+                              className="truncate cursor-pointer rounded-[4rem] max-w-[200px] hover:max-w-[450px] py-1 px-[10px] font-[500] text-[#444444] delay-500 transition-all border border-solid border-[rgba(0,0,0,0.12)] mx-[3px]"
+                            >
+                              Everyone
+                            </div>
 
-                                    color: "#121212 !important",
-                                  },
-                                  "&:hover": {
-                                    backgroundColor: state.isSelected
-                                      ? undefined
-                                      : `#dfdfdff2`,
-                                  },
-                                };
-                              },
-                              container: (provided: any, state: any) => ({
-                                ...provided,
-                                "& .select__control": {
-                                  borderWidth: "0px",
-                                  borderRadius: "0px",
-                                  backgroundColor: "transparent",
-                                  borderBottomWidth: "1px",
-                                },
-                                "& .select__value-container": {
-                                  paddingLeft: "0px",
-                                },
-                                "& .select__control:hover": {
-                                  borderBottomWidth: "2px",
-                                  borderBottomColor: "#121212",
-                                },
-                                "& .select__control--is-focused": {
-                                  borderWidth: "0px",
-                                  borderBottomWidth: "2px",
-                                  borderBottomColor: `#5e43ec !important`,
-                                  boxShadow: "none",
-                                },
-                              }),
-                            }}
-                            classNamePrefix="select"
-                          />
+                            {participants.map(
+                              (v: string, i: number) =>
+                                v.toLowerCase() != address?.toLowerCase() && (
+                                  <div
+                                    onClick={() => {
+                                      const selected = [...disparts];
+
+                                      if (selected[i] !== undefined) {
+                                        selected[i] = undefined;
+
+                                        setDisparts(selected);
+                                      } else {
+                                        selected[i] = v;
+
+                                        setDisparts(selected);
+                                      }
+                                    }}
+                                    style={
+                                      disparts[i] !== undefined
+                                        ? {
+                                            color: "#fff",
+                                            backgroundColor:
+                                              "rgb(24, 144, 255)",
+                                          }
+                                        : {}
+                                    }
+                                    className="truncate cursor-pointer rounded-[4rem] max-w-[200px] hover:max-w-[450px] py-1 px-[10px] font-[500] text-[#444444] delay-500 transition-all border border-solid border-[rgba(0,0,0,0.12)] mx-[3px]"
+                                    key={i}
+                                  >
+                                    {v}
+                                  </div>
+                                )
+                            )}
+                          </div>
+                          <span className="text-[14px] block mt-1 text-[#b6b6b6]">
+                            Not selecting any item, selects everyone
+                          </span>
                         </div>
                       </TabPanel>
                     </FormControl>
@@ -829,6 +830,8 @@ const Base = ({ children }: { children: JSX.Element[] | JSX.Element }) => {
                         return (
                           <Button
                             onClick={async () => {
+                              if (isLoading) return;
+
                               if (nname.length) {
                                 setLoader(true);
 
@@ -890,68 +893,81 @@ const Base = ({ children }: { children: JSX.Element[] | JSX.Element }) => {
                         return (
                           <Button
                             onClick={async () => {
-                              if (
-                                nname.length &&
-                                voteDesc.length &&
-                                discussions.length
-                              ) {
+                              if (isLoading) return;
+
+                              if (Number(amountAir) > 0) {
                                 setLoader(true);
 
+                                if (!disparts.length) {
+                                  setDisparts([...participants]);
+                                }
+
                                 try {
-                                  const nMessData = { ...messData };
 
-                                  if (nMessData[discussions] !== undefined) {
-                                    const newMess: any = {
-                                      content: { name: nname, desc: voteDesc },
-                                      sent: true,
-                                      type: "vote",
-                                      creator: address,
-                                      expiry: new Date().getTime(),
-                                    };
+                                  if (
+                                      !connected ||
+                                      chainId?.id != Number(process.env.NEXT_PUBLIC_CHAIN || 314159) ||
+                                      !signer
+                                    ) {
 
-                                    nMessData[discussions]["messages"].push(
-                                      newMess
-                                    );
+                                      if (chainId != process.env.NEXT_PUBLIC_CHAIN) {
+                                        const switchNet = await switchNetworkAsync?.(
+                                          Number(process.env.NEXT_PUBLIC_CHAIN || 314159)
+                                        );
 
-                                    await saveMessages({
-                                      data: JSON.stringify(nMessData),
-                                      receiver: discussions,
-                                    });
+                                      }
 
-                                    notifications({
-                                      title: `Vote campaign created by ${String(
-                                        address
-                                      ).substring(0, 6)}...${String(
-                                        address
-                                      ).substring(38, 42)}`,
-                                      message: voteDesc,
-                                      receivers: nMessData[discussions][
-                                        "participants"
-                                      ].length
-                                        ? nMessData[discussions]["participants"]
-                                        : lq[2],
-                                      exclude: address || "",
-                                    });
+                                    } else {
 
-                                    updateMessData(nMessData);
+                                      const s = signer as any;
 
-                                    rContext.update?.({
-                                      group: discussions,
-                                    });
+                                      const contractInit = new ethers.Contract(
+                                        contract || "",
+                                        contractjson.abi,
+                                        s
+                                      );
+                                      
+                                      await contractInit.airdrop(
+                                        [...disparts].filter(
+                                          (v: string | undefined) =>
+                                            v !== undefined
+                                        ),
+                                        ethers.utils.parseEther(
+                                          String(amountAir)
+                                        )
+                                      );
 
-                                    setDisparts([]);
+                                  notifications({
+                                    title: `Airdrop just got sent out`,
+                                    message: `A new airdrop of ${amountAir} created by ${String(
+                                      address
+                                    ).substring(0, 6)}...${String(
+                                      address
+                                    ).substring(
+                                      38,
+                                      42
+                                    )} has been sent out to you and ${
+                                      disparts.filter((e) => Boolean(e))
+                                        .length - 1
+                                    } others`,
+                                    receivers: [
+                                      ...(disparts.filter(
+                                        (e) => typeof e == "string"
+                                      ) as string[]),
+                                    ],
+                                    exclude: String(address),
+                                  });
 
-                                    setAddNew(false);
+                                  setDisparts([]);
 
-                                    setLoader(false);
-                                  } else {
-                                    setLoader(false);
+                                  setAddNew(false);
 
-                                    setFailMessage(
-                                      "Discussion channel not found"
-                                    );
-                                  }
+                                  setLoader(false);
+
+                                }
                                 } catch (err: any) {
+                                  console.log(err);
+
                                   setLoader(false);
 
                                   setFailMessage(
@@ -966,12 +982,12 @@ const Base = ({ children }: { children: JSX.Element[] | JSX.Element }) => {
                             }}
                             className="!py-2 !font-bold !px-3 !capitalize !flex !items-center !text-white !fill-white !bg-[#5e43ec] !border !border-solid !border-[rgb(94,67,236)] !transition-all !delay-500 hover:!text-[#f0f0f0] !rounded-lg"
                           >
-                            <BsPatchPlusFill
+                            <BsSendFill
                               color={"inherit"}
                               className={"mr-2 !fill-white"}
                               size={20}
                             />{" "}
-                            Create
+                            Send
                           </Button>
                         );
                     }
